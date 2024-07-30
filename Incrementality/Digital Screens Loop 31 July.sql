@@ -19,8 +19,8 @@ SET campaigns_to_be_analysed_array_global_var = (
     SELECT 
         ARRAY_AGG(DISTINCT booking_and_asset_number IGNORE NULLS) AS campaigns 
     FROM gcp-wow-cart-data-dev-d4d7.davide.instore_screens_campaigns_june_2023_onwards_2  --gcp-wow-cart-data-dev-d4d7.davide.instore_screens_campaigns_june_2023_onwards
-    WHERE booking_and_asset_number NOT IN (SELECT DISTINCT campaign_id FROM `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs`  WHERE query_step = "6")
-    AND DATE_TRUNC(campaign_start_date, MONTH) NOT IN ("2023-12-01", "2024-01-01")
+    WHERE booking_and_asset_number NOT IN (SELECT DISTINCT campaign_id FROM `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` WHERE query_step = "6")
+    AND DATE_TRUNC(media_start_date, MONTH) NOT IN ("2023-12-01", "2024-01-01")
 );
 
 -- Set Loop Exit Point
@@ -39,13 +39,13 @@ LOOP
 
     -- Campaign to analyze on this run
     SET current_campaign_global_var = campaigns_to_be_analysed_array_global_var[OFFSET(start_index)];
-
     SET query_start_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
 
 
+
     -- Skus in this campaign
-    CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.unique_skus AS (
+    CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.unique_skus_2 AS (
         SELECT DISTINCT 
             booking_and_asset_number, 
             sku 
@@ -58,26 +58,27 @@ LOOP
     );
 
       -- Check if the table contains more than zero rows
-    SET row_count = (SELECT COUNT(*) FROM gcp-wow-cart-data-dev-d4d7.davide.unique_skus);
+    SET row_count = (SELECT COUNT(*) FROM gcp-wow-cart-data-dev-d4d7.davide.unique_skus_2);
 
     IF row_count = 0 THEN
     -- Increment start_index and restart the loop
-        DELETE FROM `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` WHERE campaign_id = current_campaign_global_var;
-        INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` 
-            SELECT  
-                current_campaign_global_var AS campaign_id,
-                "1" AS query_step,
-                "Excluded for having zero promoted skus" AS query_type,
-                query_start_time, 
-                query_end_time, 
-                DATETIME_DIFF(query_end_time, query_start_time, SECOND) AS query_duration_in_seconds,
-                DATETIME_DIFF(query_end_time, query_start_time, SECOND) / 60 AS query_duration_in_minutes
+        SET query_end_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
+        DELETE FROM `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` WHERE campaign_id = current_campaign_global_var;
+        INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` 
+        SELECT  
+            current_campaign_global_var AS campaign_id,
+            "1" AS query_step,
+            "Excluded for having zero promoted skus" AS query_type,
+            query_start_time, 
+            query_end_time, 
+            DATETIME_DIFF(query_end_time, query_start_time, SECOND) AS query_duration_in_seconds,
+            DATETIME_DIFF(query_end_time, query_start_time, SECOND) / 60 AS query_duration_in_minutes
         ;
         SET start_index = start_index + 1;
         CONTINUE;
     END IF;
 
-    CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.prior_period_skus AS (
+    CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.prior_period_skus_2 AS (
         with campaign_dates AS (
             SELECT DISTINCT 
                 media_start_date, 
@@ -93,17 +94,18 @@ LOOP
                 ON assets.campaign_start_date >= DATE_ADD(campaign_dates.media_start_date, INTERVAL -campaign_dates.n_campaign_days DAY)
                 AND assets.campaign_end_date <= campaign_dates.media_start_date - 1,
             UNNEST(SPLIT(quoteline_skus_string, ",")) prior_period_sku
-            INNER JOIN gcp-wow-cart-data-dev-d4d7.davide.unique_skus skus 
+            INNER JOIN gcp-wow-cart-data-dev-d4d7.davide.unique_skus_2 skus 
                 ON skus.sku = prior_period_sku
     );
 
-    SET row_count = (SELECT COUNT(*) FROM gcp-wow-cart-data-dev-d4d7.davide.prior_period_skus);
+    SET row_count = (SELECT COUNT(*) FROM gcp-wow-cart-data-dev-d4d7.davide.prior_period_skus_2);
 
     IF row_count > 0 THEN
         -- Continue with the loop
         -- Log query execution time
-        DELETE FROM `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` WHERE campaign_id = current_campaign_global_var;
-        INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` 
+        SET query_end_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
+        DELETE FROM `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` WHERE campaign_id = current_campaign_global_var;
+        INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` 
         SELECT  
             current_campaign_global_var AS campaign_id,
             "1" AS query_step,
@@ -119,7 +121,7 @@ LOOP
     END IF;
 
     -- Test stores where digital screens were placed 
-    CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.test_stores AS (
+    CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.test_stores_2 AS (
         SELECT DISTINCT 
             booking_number, 
             booking_and_asset_number,
@@ -133,8 +135,8 @@ LOOP
     SET query_end_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
     -- Log query execution time
-    DELETE FROM `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` WHERE campaign_id = current_campaign_global_var;
-    INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` 
+    DELETE FROM `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` WHERE campaign_id = current_campaign_global_var;
+    INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` 
     SELECT  
         current_campaign_global_var AS campaign_id,
         "1" AS query_step,
@@ -148,7 +150,7 @@ LOOP
     SET query_start_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
     -- Determine baseline weekly variance in sales & other baseline stats for the campaign skus
-    CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign AS
+    CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign_2 AS
         WITH campaign_start_date AS (
             SELECT DISTINCT media_start_date 
             FROM gcp-wow-cart-data-dev-d4d7.davide.instore_screens_campaigns_june_2023_onwards_2
@@ -161,11 +163,10 @@ LOOP
                 DATE_TRUNC(TXNStartDate, WEEK) AS sales_week,
                 COUNT(DISTINCT BasketKey) AS n_transactions,
                 SUM(TotalAmountIncldTax) AS sales_amount
-            FROM `gcp-wow-ent-im-wowx-cust-prod.adp_wowx_dm_integrated_sales_view.article_sales_summary_v` ass_campaign_period, 
-                campaign_start_date
-            INNER JOIN gcp-wow-cart-data-dev-d4d7.davide.unique_skus unique_skus
+            FROM `gcp-wow-ent-im-wowx-cust-prod.adp_wowx_dm_integrated_sales_view.article_sales_summary_v` ass_campaign_period, campaign_start_date
+            INNER JOIN gcp-wow-cart-data-dev-d4d7.davide.unique_skus_2 unique_skus
                 ON ass_campaign_period.Article = unique_skus.sku 
-            WHERE ass_campaign_period.TXNStartDate BETWEEN DATE_SUB(campaign_start_date.media_start_date, INTERVAL 12 WEEK) AND DATE_SUB(campaign_start_date.media_start_date, INTERVAL 1 WEEK)
+            WHERE ass_campaign_period.TXNStartDate BETWEEN DATE_SUB(campaign_start_date.media_start_date, INTERVAL 13 WEEK) AND DATE_SUB(campaign_start_date.media_start_date, INTERVAL 1 WEEK)
             AND ass_campaign_period.SalesOrg = 1005
             AND LOWER(ass_campaign_period.SalesChannelDescription) <> "online"
             GROUP BY Site, sales_week
@@ -199,7 +200,20 @@ LOOP
             total_transactions
         FROM baseline_statistics;
 
+    SET query_end_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
+    -- Log query execution time
+    INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` 
+    SELECT  
+        current_campaign_global_var AS campaign_id,
+        "2" AS query_step,
+        "Baseline Stats (12 Week Lookback)" AS query_type,
+        query_start_time, 
+        query_end_time, 
+        DATETIME_DIFF(query_end_time, query_start_time, SECOND) AS query_duration_in_seconds,
+        DATETIME_DIFF(query_end_time, query_start_time, SECOND) / 60 AS query_duration_in_minutes
+    ;
+    SET query_start_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
     -- Calculate sales during campaign period (store level)
     DELETE FROM gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_during_period_2 WHERE campaign_id = current_campaign_global_var;
     INSERT INTO gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_during_period_2 
@@ -221,9 +235,9 @@ LOOP
     LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.instore_screens_campaigns_june_2023_onwards_2 trading
         ON ass_campaign_period.TXNStartDate >= trading.media_start_date 
         AND ass_campaign_period.TXNStartDate <= trading.media_end_date 
-    INNER JOIN gcp-wow-cart-data-dev-d4d7.davide.unique_skus skus 
+    INNER JOIN gcp-wow-cart-data-dev-d4d7.davide.unique_skus_2 skus 
         ON skus.sku = ass_campaign_period.Article 
-    LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.test_stores test_stores 
+    LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.test_stores_2 test_stores 
         ON CAST(test_stores.test_store AS INT64) = CAST(ass_campaign_period.Site AS INT64)
     WHERE trading.booking_and_asset_number = current_campaign_global_var
     AND LOWER(ass_campaign_period.SalesChannelDescription) <> "online"
@@ -235,22 +249,22 @@ LOOP
     SET query_end_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
     -- Log query execution time
-    INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` 
+    INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` 
     SELECT  
         current_campaign_global_var AS campaign_id,
-        "2" AS query_step,
-        "Sales Campaign Period" AS query_type,
+        "3" AS query_step,
+        "Campaign Period Sales" AS query_type,
         query_start_time, 
         query_end_time, 
         DATETIME_DIFF(query_end_time, query_start_time, SECOND) AS query_duration_in_seconds,
-        DATETIME_DIFF(query_end_time, query_start_time, SECOND) / 60 AS query_duration_in_minutes;
-
+        DATETIME_DIFF(query_end_time, query_start_time, SECOND) / 60 AS query_duration_in_minutes
+    ;
     SET query_start_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
     -- Add pre-period sales and baseline stats to the during-campaign period sales table from the previous step
-    --DELETE FROM gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_2 WHERE campaign_id = current_campaign_global_var;
-    --INSERT INTO gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_2 
-    CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_3 AS 
+    DELETE FROM gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_3 WHERE campaign_id = current_campaign_global_var;
+    INSERT INTO gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_3 
+    --CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_3 AS 
     SELECT 
         during_period.* EXCEPT(campaign_skus), 
         SUM(ass_pre_period.TotalAmountIncldTax) AS total_sales_pre_period,
@@ -269,9 +283,9 @@ LOOP
         ON ass_pre_period.TXNStartDate >= (during_period.media_start_date - INTERVAL during_period.n_days_campaign_period DAY) 
     AND ass_pre_period.TXNStartDate < during_period.media_start_date 
     AND CAST(during_period.Site AS INT64) = CAST(ass_pre_period.Site AS INT64)
-    LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign bs
+    LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign_2 bs
         ON bs.campaign_id = during_period.campaign_id AND bs.Site = during_period.Site
-    INNER JOIN gcp-wow-cart-data-dev-d4d7.davide.unique_skus skus 
+    INNER JOIN gcp-wow-cart-data-dev-d4d7.davide.unique_skus_2 skus 
         ON skus.sku = ass_pre_period.Article 
 
     WHERE LOWER(ass_pre_period.SalesChannelDescription) <> "online"
@@ -283,24 +297,22 @@ LOOP
     SET query_end_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
     -- Log query execution time
-    INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` 
+    INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` 
     SELECT  
         current_campaign_global_var AS campaign_id,
-        "3" AS query_step,
-        "Sales Pre vs During Period" AS query_type,
+        "4" AS query_step,
+        "Pre Period Sales" AS query_type,
         query_start_time, 
         query_end_time, 
         DATETIME_DIFF(query_end_time, query_start_time, SECOND) AS query_duration_in_seconds,
         DATETIME_DIFF(query_end_time, query_start_time, SECOND) / 60 AS query_duration_in_minutes
-        ;
-
+    ;
     SET query_start_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
-
     -- Store level / matched comparisons
-    --DELETE FROM gcp-wow-cart-data-dev-d4d7.davide.digital_screens_store_comparisons_plus_baseline_2 WHERE campaign_id = current_campaign_global_var;
-    --INSERT INTO gcp-wow-cart-data-dev-d4d7.davide.digital_screens_store_comparisons_plus_baseline_2
-    CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.digital_screens_store_comparisons_plus_baseline_3 AS
+    DELETE FROM gcp-wow-cart-data-dev-d4d7.davide.digital_screens_store_comparisons_plus_baseline_3 WHERE campaign_id = current_campaign_global_var;
+    INSERT INTO gcp-wow-cart-data-dev-d4d7.davide.digital_screens_store_comparisons_plus_baseline_3
+    --CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.digital_screens_store_comparisons_plus_baseline_3 AS
     WITH 
 
     n_days AS (
@@ -416,7 +428,8 @@ LOOP
         baseline_control.stddev_transactions AS control_store_stddev_transactions,
         baseline_control.stddev_sales_amount AS control_store_stddev_sales_amount,
         baseline_control.variance_transactions AS control_store_variance_transactions,
-        test_store_uplift - control_store_uplift AS uplift_effect,
+        test_store_perc_uplift - control_store_perc_uplift AS perc_uplift_effect,
+        test_store_raw_uplift - control_store_raw_uplift AS raw_uplift_effect,
         CASE 
             WHEN ABS(test_store_raw_uplift - control_store_raw_uplift) > baseline_test.stddev_sales_amount OR 
                 ABS(test_store_raw_uplift - control_store_raw_uplift) > baseline_control.stddev_sales_amount
@@ -424,26 +437,25 @@ LOOP
             ELSE "Not Significant"
         END AS significance
     FROM step_nine
-    LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign baseline_test 
+    LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign_2 baseline_test 
         ON step_nine.test_store = baseline_test.Site AND step_nine.campaign_id = baseline_test.campaign_id
-    LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign baseline_control 
+    LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign_2 baseline_control 
         ON step_nine.control_store = baseline_control.Site AND step_nine.campaign_id = baseline_control.campaign_id;
         
 
     SET query_end_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
     -- Log query execution time
-    INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` 
+    INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` 
     SELECT  
         current_campaign_global_var AS campaign_id,
-        "4" AS query_step,
-        "Store Level Results" AS query_type,
+        "5" AS query_step,
+        "Store Comparisons" AS query_type,
         query_start_time, 
         query_end_time, 
         DATETIME_DIFF(query_end_time, query_start_time, SECOND) AS query_duration_in_seconds,
-        DATETIME_DIFF(query_end_time, query_start_time, SECOND) / 60 AS query_duration_in_minutes;
-
-    SET query_start_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
+        DATETIME_DIFF(query_end_time, query_start_time, SECOND) / 60 AS query_duration_in_minutes
+    ;
 
     -- Commenting out for now
     --DELETE FROM gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_averaged WHERE campaign_id = current_campaign_global_var;
@@ -473,7 +485,7 @@ LOOP
     */
 
     SET query_end_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
-    INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` 
+    INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` 
     SELECT  
         current_campaign_global_var AS campaign_id,
         "6" AS query_step,
@@ -482,7 +494,7 @@ LOOP
         query_end_time, 
         DATETIME_DIFF(query_end_time, campaign_run_start_time, SECOND) AS query_duration_in_seconds,
         DATETIME_DIFF(query_end_time, campaign_run_start_time, SECOND) / 60 AS query_duration_in_minutes;
-
+  
   -- Increment the iterator and repeat from the top of the loop
   SET start_index = start_index + 1;
 END LOOP;
