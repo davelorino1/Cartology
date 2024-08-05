@@ -178,6 +178,7 @@ LOOP
                 AVG(n_transactions) AS mean_transactions,
                 STDDEV(n_transactions) AS stddev_transactions,
                 STDDEV(sales_amount) AS stddev_sales_amount,
+                AVG(sales_amount) AS mean_sales_amount,
                 VARIANCE(n_transactions) AS variance_transactions,
                 MIN(n_transactions) AS min_transactions,
                 MAX(n_transactions) AS max_transactions,
@@ -191,6 +192,7 @@ LOOP
             current_campaign_global_var AS campaign_id,
             Site,
             mean_transactions,
+            mean_sales_amount,
             stddev_transactions,
             stddev_sales_amount,
             variance_transactions,
@@ -262,8 +264,8 @@ LOOP
     SET query_start_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
     -- Add pre-period sales and baseline stats to the during-campaign period sales table from the previous step
-    DELETE FROM gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_3 WHERE campaign_id = current_campaign_global_var;
-    INSERT INTO gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_3 
+    DELETE FROM gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_4 WHERE campaign_id = current_campaign_global_var;
+    INSERT INTO gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_4 
     --CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_3 AS 
     SELECT 
         during_period.* EXCEPT(campaign_skus), 
@@ -277,7 +279,8 @@ LOOP
         bs.min_transactions,
         bs.max_transactions,
         bs.weeks_count,
-        bs.total_transactions
+        bs.total_transactions,
+        bs.mean_sales_amount
     FROM gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_during_period_2 during_period 
     LEFT JOIN `gcp-wow-ent-im-wowx-cust-prod.adp_wowx_dm_integrated_sales_view.article_sales_summary_v` ass_pre_period
         ON ass_pre_period.TXNStartDate >= (during_period.media_start_date - INTERVAL during_period.n_days_campaign_period DAY) 
@@ -319,7 +322,7 @@ LOOP
         SELECT 
             campaign_id, 
             MAX(n_days_campaign_period) AS max_days_campaign_period 
-        FROM  gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_3
+        FROM  gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_4
         WHERE campaign_id = current_campaign_global_var
         GROUP BY 1
     ),
@@ -329,7 +332,7 @@ LOOP
             res.*, 
             SAFE_DIVIDE(total_sales_campaign_period , total_sales_pre_period) - 1 AS perc_sales_uplift,
             total_sales_campaign_period - total_sales_pre_period AS raw_sales_uplift
-        FROM gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_3 res
+        FROM gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_plus_baseline_4 res
         LEFT JOIN n_days
             ON res.campaign_id = n_days.campaign_id 
             AND res.n_days_campaign_period = n_days.max_days_campaign_period 
@@ -435,7 +438,10 @@ LOOP
                 ABS(test_store_raw_uplift - control_store_raw_uplift) > baseline_control.stddev_sales_amount
             THEN "Significant"
             ELSE "Not Significant"
-        END AS significance
+        END AS significance,
+        baseline_test.mean_sales_amount AS test_store_mean_sales_amount,
+        baseline_control.mean_sales_amount AS control_store_mean_sales_amount
+
     FROM step_nine
     LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign_2 baseline_test 
         ON step_nine.test_store = baseline_test.Site AND step_nine.campaign_id = baseline_test.campaign_id
