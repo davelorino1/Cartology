@@ -1,5 +1,3 @@
-
-
 -- Global vars 
 DECLARE start_index INT64 DEFAULT 0;
 DECLARE end_index INT64;
@@ -315,10 +313,9 @@ LOOP
     ;
     SET query_start_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
-    -- Store level / matched comparisons
+
     DELETE FROM gcp-wow-cart-data-dev-d4d7.davide.digital_screens_store_comparisons_plus_baseline_4 WHERE campaign_id = current_campaign_global_var;
-    INSERT INTO gcp-wow-cart-data-dev-d4d7.davide.digital_screens_store_comparisons_plus_baseline_4
-    --CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.digital_screens_store_comparisons_plus_baseline_3 AS
+    INSERT INTO gcp-wow-cart-data-dev-d4d7.davide.digital_screens_store_comparisons_plus_baseline_4 
     WITH 
 
     n_days AS (
@@ -371,61 +368,53 @@ LOOP
     step_four AS (
         SELECT 
             step_three.*,
-            sim.similarity_ranking,
-            sim.n_comparison_campaign_ids,
-            sim.campaign_start_date AS comparison_campaign_start_date,
-            MAX(sim.campaign_start_date) OVER(PARTITION BY step_three.campaign_id ORDER BY sim.campaign_start_date) AS max_comparison_campaign_start_date
+            SAFE_DIVIDE(baseline_test.sales_amount , 12) AS test_mean_historical_sales,
+            SAFE_DIVIDE(baseline_control.sales_amount , 12) AS control_mean_historical_Sales, 
+            SAFE_DIVIDE(SAFE_DIVIDE(baseline_test.sales_amount , 12) , SAFE_DIVIDE(baseline_control.sales_amount , 12)) AS test_vs_control_mean_historical_sales_perc_diff, 
+            baseline_test.stddev_sales_amount AS test_stddev_sales_amount, 
+            baseline_control.stddev_sales_amount AS control_stddev_sales_amount,
+            SAFE_DIVIDE(baseline_test.stddev_sales_amount , baseline_control.stddev_sales_amount) AS test_vs_control_stddev_sales_amount_perc_diff, 
+            ABS(SAFE_DIVIDE(SAFE_DIVIDE(baseline_test.sales_amount , 12) , SAFE_DIVIDE(baseline_control.sales_amount , 12))) + ABS(SAFE_DIVIDE(baseline_test.stddev_sales_amount , baseline_control.stddev_sales_amount)) AS sum_of_abs_perc_diffs
         FROM step_three 
-        LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.cartology_incrementality_retro_analysis_store_comparison_of_prior_campaign_impact_medians sim 
-            ON CAST(sim.store_id AS STRING) = CAST(step_three.test_store AS STRING)
-            AND CAST(sim.comparison_store_id AS STRING) = CAST(step_three.control_store AS STRING)
-        WHERE sim.campaign_start_date < step_three.media_start_date
-        GROUP BY ALL 
+        
+        LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign_3 baseline_test 
+            ON step_three.test_store = baseline_test.Site AND step_three.campaign_id = baseline_test.campaign_id
+
+        LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign_3 baseline_control 
+            ON step_three.control_store = baseline_control.Site AND step_three.campaign_id = baseline_control.campaign_id
+        
     ), 
 
     step_five AS (
         SELECT 
-            campaign_id, 
-            media_start_date, 
-            test_store, 
-            MIN(similarity_ranking) AS min_sim_rank
-        FROM step_four
-        WHERE comparison_campaign_start_date = max_comparison_campaign_start_date
-        GROUP BY ALL 
+            *, 
+            ROW_NUMBER() OVER(PARTITION BY campaign_id, test_store ORDER BY campaign_id, test_store, sum_of_abs_perc_diffs) AS sim_rank 
+        FROM step_four 
     ),
 
     step_six AS (
+
         SELECT 
-            step_four.*
-        FROM step_four 
-        INNER JOIN step_five 
-            ON step_four.campaign_id = step_five.campaign_id 
-            AND step_four.media_start_date = step_five.media_start_date 
-            AND step_four.test_store = step_five.test_store
-            AND step_four.similarity_ranking = step_five.min_sim_rank 
-    ), 
-        
-    step_seven AS (
-        SELECT 
-            step_six.*,
-            MAX(step_six.n_comparison_campaign_ids) OVER(PARTITION BY campaign_id, test_store, similarity_ranking) AS max_n_comparison_campaign_ids  
-        FROM step_six 
-    ), 
-        
-    step_eight AS (
-        SELECT * 
-        FROM step_seven 
-        WHERE n_comparison_campaign_ids = max_n_comparison_campaign_ids 
+            campaign_id, 
+            media_start_date, 
+            test_store, 
+            MIN(sim_rank) AS min_sim_rank 
+        FROM step_five 
+        GROUP BY 1,2,3 
     ),
 
-    step_nine AS (
-        SELECT DISTINCT * 
-        FROM step_eight 
-        ORDER BY campaign_id, test_store
-    ) 
+    step_seven AS (
+        SELECT DISTINCT step_five.* 
+        FROM step_five 
+        LEFT JOIN step_six 
+            ON step_five.campaign_id = step_six.campaign_id 
+            AND step_five.test_store = step_six.test_store 
+            AND step_five.sim_rank = step_six.min_sim_rank 
+        WHERE step_six.min_sim_rank IS NOT NULL 
+    )
 
     SELECT 
-        step_nine.*,
+        step_seven.*,
         baseline_test.mean_transactions AS test_store_mean_transactions,
         baseline_test.stddev_transactions AS test_store_stddev_transactions,
         baseline_test.stddev_sales_amount AS test_store_stddev_sales_amount,
@@ -445,12 +434,12 @@ LOOP
         baseline_test.sales_amount AS test_store_sales_amount,
         baseline_control.sales_amount AS control_store_sales_amount
 
-    FROM step_nine
+    FROM step_seven
     LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign_3 baseline_test 
-        ON step_nine.test_store = baseline_test.Site AND step_nine.campaign_id = baseline_test.campaign_id
+        ON step_seven.test_store = baseline_test.Site AND step_seven.campaign_id = baseline_test.campaign_id
     LEFT JOIN gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign_3 baseline_control 
-        ON step_nine.control_store = baseline_control.Site AND step_nine.campaign_id = baseline_control.campaign_id;
-        
+        ON step_seven.control_store = baseline_control.Site AND step_seven.campaign_id = baseline_control.campaign_id
+    ; -- Store Comparisons with new matching (std. dev and mean based matching)
 
     SET query_end_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
@@ -466,32 +455,6 @@ LOOP
         DATETIME_DIFF(query_end_time, query_start_time, SECOND) / 60 AS query_duration_in_minutes
     ;
 
-    -- Commenting out for now
-    --DELETE FROM gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_averaged WHERE campaign_id = current_campaign_global_var;
-    /*
-    INSERT INTO gcp-wow-cart-data-dev-d4d7.davide.instore_screens_sales_pre_vs_during_period_averaged
-    SELECT 
-        campaign_id, 
-        AVG(uplift_effect) AS average_uplift_effect 
-    FROM gcp-wow-cart-data-dev-d4d7.davide.instore_digital_screens_comparisons_store_level
-    WHERE  campaign_id = current_campaign_global_var
-    GROUP BY 1;
-    */
-
-    --SET query_end_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
-
-    -- Log individual and overall query execution time
-    /*
-    INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` 
-    SELECT  
-        current_campaign_global_var AS campaign_id,
-        "5" AS query_step,
-        "Campaign Level Results" AS query_type,
-        query_start_time, 
-        query_end_time, 
-        DATETIME_DIFF(query_end_time, query_start_time, SECOND) AS query_duration_in_seconds,
-        DATETIME_DIFF(query_end_time, query_start_time, SECOND) / 60 AS query_duration_in_minutes;
-    */
 
     SET query_end_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
     INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs_2` 
