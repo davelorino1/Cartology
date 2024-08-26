@@ -218,7 +218,7 @@ LOOP
                 w.shopper_id,
                 w.crn
             FROM
-                `gcp-wow-cart-data-dev-d4d7.davide.adobe_carto_catalogue_homepage_ciid_control`w
+                `gcp-wow-cart-data-dev-d4d7.davide.adobe_carto_catalogue_homepage_ciid_control` w
             INNER JOIN
                 campaign_dates c
             ON
