@@ -57,11 +57,11 @@ LOOP
         AND sku <> ""
     );
 
-      -- Check if the table contains more than zero rows
+    -- Check if the table contains more than zero rows
     SET row_count = (SELECT COUNT(*) FROM gcp-wow-cart-data-dev-d4d7.davide.unique_skus);
 
+    -- If the campaign has no skus in the cartology assets table, increment start_index and restart the loop
     IF row_count = 0 THEN
-    -- Increment start_index and restart the loop
         DELETE FROM `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` WHERE campaign_id = current_campaign_global_var;
         INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` 
             SELECT  
@@ -77,6 +77,7 @@ LOOP
         CONTINUE;
     END IF;
 
+    -- Check if the skus in the campaign are also being promoted at any point in the pre-campaign period by any other campaign
     CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.prior_period_skus AS (
         with campaign_dates AS (
             SELECT DISTINCT 
@@ -99,9 +100,8 @@ LOOP
 
     SET row_count = (SELECT COUNT(*) FROM gcp-wow-cart-data-dev-d4d7.davide.prior_period_skus);
 
+    -- If the campaign skus are being promoted in the pre-campaign period, skip this campaign (not eligible) and restart the loop on the next campaign
     IF row_count > 0 THEN
-        -- Continue with the loop
-        -- Log query execution time
         DELETE FROM `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` WHERE campaign_id = current_campaign_global_var;
         INSERT INTO `gcp-wow-cart-data-dev-d4d7.davide.instore_screens_run_logs` 
         SELECT  
@@ -129,7 +129,6 @@ LOOP
         WHERE booking_and_asset_number = current_campaign_global_var
         AND test_store IS NOT NULL
     );
-
     SET query_end_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
     -- Log query execution time
@@ -147,7 +146,7 @@ LOOP
 
     SET query_start_time = DATETIME(CURRENT_TIMESTAMP(), 'Australia/Sydney');
 
-    -- Determine baseline weekly variance in sales & other baseline stats for the campaign skus
+    -- Determine baseline mean and std_dev in the 12 week "pre-pre" campaign period
     CREATE OR REPLACE TABLE gcp-wow-cart-data-dev-d4d7.davide.baseline_statistics_with_campaign AS
         WITH campaign_start_date AS (
             SELECT DISTINCT media_start_date 

@@ -194,7 +194,7 @@ CREATE OR REPLACE TABLE `gcp-wow-cart-data-dev-d4d7.davide.carto_campaigns`  AS 
 );
 
 -- 2. Adobe Events
-CREATE OR REPLACE TABLE `gcp-wow-cart-data-dev-d4d7.davide.adobe_carto_catalogue_homepage_ciid`  AS (
+CREATE OR REPLACE TABLE `gcp-wow-cart-data-dev-d4d7.davide.adobe_carto_catalogue_homepage_ciid_search_term_test`  AS (
     with 
     
     cartology_campaign_asset_impressions_in_adobe AS (
@@ -206,7 +206,10 @@ CREATE OR REPLACE TABLE `gcp-wow-cart-data-dev-d4d7.davide.adobe_carto_catalogue
             CASE WHEN SPLIT(post_evar6,":")[SAFE_OFFSET(2)] = 'catalogue' OR LOWER(post_evar7) = 'catalogue' THEN 1 ELSE 0 END AS catalogue_flag,    
             CASE WHEN post_evar6 = 'ww-sm:homepage' THEN 1 ELSE 0 END AS homepage_flag, 
             CASE WHEN post_mvvar2 IS NOT NULL THEN SPLIT(post_mvvar2,":")[SAFE_OFFSET(0)] ELSE "Not Found" END AS booking_id,
-            CASE WHEN post_mvvar2 IS NOT NULL THEN SPLIT(post_mvvar2,":")[SAFE_OFFSET(3)] ELSE NULL END AS ci_id
+            CASE WHEN post_mvvar2 IS NOT NULL THEN SPLIT(post_mvvar2,":")[SAFE_OFFSET(3)] ELSE NULL END AS ci_id,
+            post_evar51 AS search_term1,
+            post_evar52 AS search_term2,
+            post_evar53 AS search_term3
             
         FROM `gcp-wow-food-wlx-digaspt-dev.prod_adobe_data.grs_adobe` adobe
 
@@ -225,7 +228,7 @@ CREATE OR REPLACE TABLE `gcp-wow-cart-data-dev-d4d7.davide.adobe_carto_catalogue
         AND 
             DATE(date_time) >= DATE("2023-10-01")
         AND    
-            DATE(date_time) < CURRENT_DATE("Australia/Sydney")
+            DATE(date_time) < DATE("2023-10-02") --CURRENT_DATE("Australia/Sydney")
         AND         
             (
                 -- Catalogue
